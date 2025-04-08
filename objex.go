@@ -3,7 +3,8 @@ package objex
 // TODO: write comments for each function
 type Store interface {
 	Setup() error
-	SetBucket(bucketName string) error
+	SetBucket(bucketName string) (found bool, err error)
+	SetRegion(region string) error
 	CreateBucket(bucketName string) error
 	DeleteBucket(bucketName string) error
 	ListBuckets() ([]string, error)
