@@ -3,16 +3,19 @@ package objex
 // TODO: write comments for each function
 type Store interface {
 	Setup() error
-	SetBucket(name string) error
-	CreateBucket(name string) error
-	DeleteBucket(name string) error
-	CreateObject(name string, data []byte) error
-	ReadObject(name string) ([]byte, error)
-	UpdateObject(name string, data []byte) error
-	DeleteObject(name string) error
-	Exists(name string) (bool, error)
-	Metadata(name string) (map[string]string, error)
-	CopyObject(src, dest string) error
-	MoveObject(src, dest string) error
+	SetBucket(bucketName string) error
+	CreateBucket(bucketName string) error
+	DeleteBucket(bucketName string) error
+	ListBuckets() ([]string, error)
+	CreateObject(fileName string, data []byte) error
+	ReadObject(fileName string) ([]byte, error)
+	UpdateObject(fileName string, data []byte) error
+	DeleteObject(fileName string) error
+	ListObjects(bucketName string) ([]string, error)
+	Exists(fileName string) (bool, error)
+	Metadata(fileName string) (map[string]string, error)
+	CopyObject(fileSource, fileDestination string) error
+	MoveObject(fileSource, fileDestination string) error
 	CleanUp() error
+	HealthCheck() error
 }
