@@ -2,7 +2,10 @@ module github.com/brian-nunez/objex/drivers/minio
 
 go 1.23.0
 
-require github.com/minio/minio-go/v7 v7.0.89
+require (
+	github.com/brian-nunez/objex v0.0.5
+	github.com/minio/minio-go/v7 v7.0.89
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
