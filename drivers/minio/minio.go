@@ -3,8 +3,11 @@ package minio
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
+	"strings"
 
+	"github.com/brian-nunez/objex"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -25,20 +28,6 @@ type Store struct {
 	bucket string
 }
 
-var (
-	ErrInvalidEndpoint     = errors.New("INVALID_ENDPOINT")
-	ErrInvalidAccessKey    = errors.New("INVALID_ACCESS_KEY")
-	ErrInvalidSecretKey    = errors.New("INVALID_SECRET_KEY")
-	ErrClientInit          = errors.New("CLIENT_INIT_FAILED")
-	ErrBucketNotFound      = errors.New("BUCKET_NOT_FOUND")
-	ErrInvalidBucketName   = errors.New("INVALID_BUCKET_NAME")
-	ErrObjectNotFound      = errors.New("OBJECT_NOT_FOUND")
-	ErrAccessDenied        = errors.New("ACCESS_DENIED")
-	ErrBucketNotEmpty      = errors.New("BUCKET_NOT_EMPTY")
-	ErrPreconditionFailed  = errors.New("PRECONDITION_FAILED")
-	ErrBucketAlreadyExists = errors.New("BUCKET_ALREADY_EXISTS")
-)
-
 func ToStandardError(err error) error {
 	if err == nil {
 		return nil
@@ -51,27 +40,27 @@ func ToStandardError(err error) error {
 	}
 
 	if code == "NoSuchBucket" {
-		return ErrBucketNotFound
+		return objex.ErrBucketNotFound
 	}
 
 	if code == "NoSuchKey" {
-		return ErrObjectNotFound
+		return objex.ErrObjectNotFound
 	}
 
 	if code == "AccessDenied" {
-		return ErrAccessDenied
+		return objex.ErrAccessDenied
 	}
 
 	if code == "Conflict" {
-		return ErrBucketNotEmpty
+		return objex.ErrBucketNotEmpty
 	}
 
 	if code == "PreconditionFailed" {
-		return ErrPreconditionFailed
+		return objex.ErrPreconditionFailed
 	}
 
 	if code == "BucketAlreadyOwnedByYou" {
-		return ErrBucketAlreadyExists
+		return objex.ErrBucketAlreadyExists
 	}
 
 	return errors.New(code)
@@ -79,15 +68,15 @@ func ToStandardError(err error) error {
 
 func NewStore(config Config) (*Store, error) {
 	if config.Endpoint == "" {
-		return nil, ErrInvalidEndpoint
+		return nil, objex.ErrInvalidEndpoint
 	}
 
 	if config.AccessKey == "" {
-		return nil, ErrInvalidAccessKey
+		return nil, objex.ErrInvalidAccessKey
 	}
 
 	if config.SecretKey == "" {
-		return nil, ErrInvalidSecretKey
+		return nil, objex.ErrInvalidSecretKey
 	}
 
 	if config.Region == "" {
@@ -104,7 +93,7 @@ func NewStore(config Config) (*Store, error) {
 		Secure: config.UseSSL,
 	})
 	if err != nil {
-		return nil, ErrClientInit
+		return nil, objex.ErrClientInit
 	}
 
 	store := &Store{
@@ -138,7 +127,7 @@ func (s *Store) SetBucket(bucketName string) (found bool, err error) {
 	}
 
 	if !found {
-		return found, ErrBucketNotFound
+		return found, objex.ErrBucketNotFound
 	}
 
 	s.bucket = bucketName
@@ -157,7 +146,7 @@ func (s *Store) SetRegion(region string) error {
 
 func (s *Store) CreateBucket(name string) error {
 	if name == "" {
-		return ErrInvalidBucketName
+		return objex.ErrInvalidBucketName
 	}
 
 	err := s.client.MakeBucket(
@@ -178,13 +167,13 @@ func (s *Store) CreateBucket(name string) error {
 
 func (s *Store) DeleteBucket(name string) error {
 	if name == "" {
-		return ErrInvalidBucketName
+		return objex.ErrInvalidBucketName
 	}
 
 	err := s.client.RemoveBucket(context.Background(), name)
 	if err != nil {
 		standardErr := ToStandardError(err)
-		if standardErr == ErrBucketNotFound {
+		if standardErr == objex.ErrBucketNotFound {
 			return nil
 		}
 
@@ -194,8 +183,21 @@ func (s *Store) DeleteBucket(name string) error {
 	return nil
 }
 
-func (s *Store) ListBuckets() ([]string, error) {
-	return []string{}, nil
+func (s *Store) ListBuckets() ([]objex.Bucket, error) {
+	buckets, err := s.client.ListBuckets(context.Background())
+	if err != nil {
+		return nil, ToStandardError(err)
+	}
+
+	var bucketItems []objex.Bucket
+	for _, bucket := range buckets {
+		bucketItems = append(bucketItems, objex.Bucket{
+			Name:         bucket.Name,
+			CreationDate: bucket.CreationDate.String(),
+		})
+	}
+
+	return bucketItems, nil
 }
 
 func (s *Store) CreateObject(name string, data []byte) error {
@@ -203,7 +205,45 @@ func (s *Store) CreateObject(name string, data []byte) error {
 }
 
 func (s *Store) ReadObject(name string) ([]byte, error) {
-	return nil, nil
+	if name == "" {
+		return nil, objex.ErrInvalidObjectName
+	}
+
+	bucketName := s.bucket
+	fileName := name
+	if bucketName == "" {
+		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
+		paths := strings.Split(name, "/")
+		bucketName = paths[0]
+		fileName = strings.Join(paths[1:], "/")
+
+		if bucketName == "" || fileName == "" {
+			return nil, objex.ErrInvalidObjectName
+		}
+	}
+
+	object, err := s.client.GetObject(
+		context.Background(),
+		bucketName,
+		fileName,
+		minio.GetObjectOptions{},
+	)
+	if err != nil {
+		standardErr := ToStandardError(err)
+		if standardErr == objex.ErrObjectNotFound {
+			return nil, nil
+		}
+
+		return nil, standardErr
+	}
+	defer object.Close()
+
+	objectData, err := io.ReadAll(object)
+	if err != nil {
+		return nil, err
+	}
+
+	return objectData, nil
 }
 
 func (s *Store) UpdateObject(name string, data []byte) error {

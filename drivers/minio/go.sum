@@ -1,3 +1,5 @@
+github.com/brian-nunez/objex v0.0.5 h1:gKZ8EzuZxJ/C7ZjBSjerTQhdnG0z9PIhsJ7lLyqJqh8=
+github.com/brian-nunez/objex v0.0.5/go.mod h1:Y8OMIyCvMPR0hoNShiG9R6ZDbU0zNZTtxB4BbeLa3kE=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
