@@ -67,25 +67,13 @@ func ToStandardError(err error) error {
 }
 
 func NewStore(config Config) (*Store, error) {
-	if config.Endpoint == "" {
-		return nil, objex.ErrInvalidEndpoint
+	store := &Store{
+		config: config,
 	}
 
-	if config.AccessKey == "" {
-		return nil, objex.ErrInvalidAccessKey
-	}
-
-	if config.SecretKey == "" {
-		return nil, objex.ErrInvalidSecretKey
-	}
-
-	if config.Region == "" {
-		log.Println("[Objex Minio] Warning: Region is not set, defaulting to 'us-east-1'")
-		config.Region = "us-east-1"
-	}
-
-	if !config.UseSSL {
-		log.Println("[Objex Minio] Warning: Using HTTP instead of HTTPS")
+	err := store.HealthCheck()
+	if err != nil {
+		return nil, err
 	}
 
 	minioClient, err := minio.New(config.Endpoint, &minio.Options{
@@ -96,10 +84,7 @@ func NewStore(config Config) (*Store, error) {
 		return nil, objex.ErrClientInit
 	}
 
-	store := &Store{
-		config: config,
-		client: minioClient,
-	}
+	store.client = minioClient
 
 	return store, nil
 }
@@ -109,6 +94,27 @@ func (s *Store) Setup() error {
 }
 
 func (s *Store) HealthCheck() error {
+	if s.config.Endpoint == "" {
+		return objex.ErrInvalidEndpoint
+	}
+
+	if s.config.AccessKey == "" {
+		return objex.ErrInvalidAccessKey
+	}
+
+	if s.config.SecretKey == "" {
+		return objex.ErrInvalidSecretKey
+	}
+
+	if s.config.Region == "" {
+		log.Println("[Objex Minio] Warning: Region is not set, defaulting to 'us-east-1'")
+		s.config.Region = "us-east-1"
+	}
+
+	if !s.config.UseSSL {
+		log.Println("[Objex Minio] Warning: Using HTTP instead of HTTPS")
+	}
+
 	return nil
 }
 
