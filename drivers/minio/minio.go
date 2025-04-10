@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/brian-nunez/objex"
@@ -206,7 +207,45 @@ func (s *Store) ListBuckets() ([]objex.Bucket, error) {
 	return bucketItems, nil
 }
 
-func (s *Store) CreateObject(name string, data []byte) error {
+func (s *Store) CreateObject(name string, data *os.File) error {
+	if name == "" {
+		return objex.ErrInvalidObjectName
+	}
+
+	bucketName := s.bucket
+	fileName := name
+	if bucketName == "" {
+		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
+		paths := strings.Split(name, "/")
+		bucketName = paths[0]
+		fileName = strings.Join(paths[1:], "/")
+
+		if bucketName == "" || fileName == "" {
+			return objex.ErrInvalidObjectName
+		}
+	}
+
+	fileInfo, err := data.Stat()
+	if err != nil {
+		return objex.ErrInvalidFile
+	}
+
+	_, err = s.client.PutObject(
+		context.Background(),
+		bucketName,
+		fileName,
+		data,
+		fileInfo.Size(),
+		minio.PutObjectOptions{
+			ContentType: "application/octet-stream",
+		},
+	)
+
+	standardErr := ToStandardError(err)
+	if standardErr != nil {
+		return standardErr
+	}
+
 	return nil
 }
 
