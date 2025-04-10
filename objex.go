@@ -1,6 +1,9 @@
 package objex
 
-import "errors"
+import (
+	"errors"
+	"os"
+)
 
 var (
 	ErrInvalidEndpoint     = errors.New("INVALID_ENDPOINT")
@@ -15,6 +18,7 @@ var (
 	ErrPreconditionFailed  = errors.New("PRECONDITION_FAILED")
 	ErrBucketAlreadyExists = errors.New("BUCKET_ALREADY_EXISTS")
 	ErrInvalidObjectName   = errors.New("INVALID_OBJECT_NAME")
+	ErrInvalidFile         = errors.New("INVALID_FILE")
 )
 
 type Bucket struct {
@@ -30,7 +34,7 @@ type Store interface {
 	CreateBucket(bucketName string) error
 	DeleteBucket(bucketName string) error
 	ListBuckets() ([]Bucket, error)
-	CreateObject(fileName string, data []byte) error
+	CreateObject(fileName string, file *os.File) error
 	ReadObject(fileName string) ([]byte, error)
 	UpdateObject(fileName string, data []byte) error
 	DeleteObject(fileName string) error
