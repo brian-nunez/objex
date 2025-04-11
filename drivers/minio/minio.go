@@ -328,8 +328,41 @@ func (s *Store) DeleteObject(name string) error {
 	return nil
 }
 
+// TODO: return bucket info instead of object name
 func (s *Store) ListObjects(name string) ([]string, error) {
-	return []string{}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bucketName := s.bucket
+	if bucketName == "" {
+		bucketName = name
+	}
+	if bucketName == "" {
+		return nil, objex.ErrInvalidBucketName
+	}
+
+	objectChannel := s.client.ListObjects(
+		ctx,
+		bucketName,
+		minio.ListObjectsOptions{
+			Recursive: true,
+		},
+	)
+
+	objectNameList := make([]string, 0)
+	for object := range objectChannel {
+		if object.Err != nil {
+			return nil, ToStandardError(object.Err)
+		}
+
+		if object.Key == "" {
+			continue
+		}
+
+		objectNameList = append(objectNameList, object.Key)
+	}
+
+	return objectNameList, nil
 }
 
 func (s *Store) Exists(name string) (bool, error) {
