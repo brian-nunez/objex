@@ -296,6 +296,35 @@ func (s *Store) UpdateObject(name string, data []byte) error {
 }
 
 func (s *Store) DeleteObject(name string) error {
+	if name == "" {
+		return objex.ErrInvalidObjectName
+	}
+
+	bucketName := s.bucket
+	fileName := name
+	if bucketName == "" {
+		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
+		paths := strings.Split(name, "/")
+		bucketName = paths[0]
+		fileName = strings.Join(paths[1:], "/")
+
+		if bucketName == "" || fileName == "" {
+			return objex.ErrInvalidObjectName
+		}
+	}
+
+	err := s.client.RemoveObject(
+		context.Background(),
+		bucketName,
+		fileName,
+		minio.RemoveObjectOptions{},
+	)
+
+	standardErr := ToStandardError(err)
+	if standardErr != nil {
+		return standardErr
+	}
+
 	return nil
 }
 
