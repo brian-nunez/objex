@@ -365,8 +365,36 @@ func (s *Store) ListObjects(name string) ([]string, error) {
 	return objectNameList, nil
 }
 
-func (s *Store) Exists(name string) (bool, error) {
-	return false, nil
+func (s *Store) Exists(objectName string) (bool, error) {
+	bucketName := s.bucket
+	if bucketName == "" {
+		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
+		paths := strings.Split(objectName, "/")
+		bucketName = paths[0]
+		objectName = strings.Join(paths[1:], "/")
+
+		if bucketName == "" || objectName == "" {
+			return false, objex.ErrInvalidObjectName
+		}
+	}
+
+	_, err := s.client.StatObject(
+		context.Background(),
+		bucketName,
+		objectName,
+		minio.StatObjectOptions{},
+	)
+
+	if err != nil {
+		standardErr := ToStandardError(err)
+		if standardErr == objex.ErrObjectNotFound {
+			return false, nil
+		}
+
+		return false, standardErr
+	}
+
+	return true, nil
 }
 
 func (s *Store) Metadata(name string) (map[string]string, error) {
