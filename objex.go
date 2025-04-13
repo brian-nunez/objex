@@ -26,6 +26,14 @@ type Bucket struct {
 	CreationDate string
 }
 
+type ObjectMetaData struct {
+	Key          string
+	LastModified string
+	ETag         string
+	Size         int64
+	ContentType  string
+}
+
 // TODO: write comments for each function
 type Store interface {
 	Setup() error
@@ -40,7 +48,7 @@ type Store interface {
 	DeleteObject(fileName string) error
 	ListObjects(bucketName string) ([]string, error)
 	Exists(fileName string) (bool, error)
-	Metadata(fileName string) (map[string]string, error)
+	Metadata(fileName string) (*ObjectMetaData, error)
 	CopyObject(fileSource, fileDestination string) error
 	MoveObject(fileSource, fileDestination string) error
 	CleanUp() error
