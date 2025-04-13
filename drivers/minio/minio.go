@@ -397,8 +397,43 @@ func (s *Store) Exists(objectName string) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) Metadata(name string) (map[string]string, error) {
-	return map[string]string{}, nil
+func (s *Store) Metadata(objectName string) (*objex.ObjectMetaData, error) {
+	bucketName := s.bucket
+	if bucketName == "" {
+		paths := strings.Split(objectName, "/")
+		bucketName = paths[0]
+		objectName = strings.Join(paths[1:], "/")
+
+		if bucketName == "" || objectName == "" {
+			return nil, objex.ErrInvalidObjectName
+		}
+	}
+
+	objectItem, err := s.client.StatObject(
+		context.Background(),
+		bucketName,
+		objectName,
+		minio.StatObjectOptions{},
+	)
+
+	if err != nil {
+		standardErr := ToStandardError(err)
+		if standardErr == objex.ErrObjectNotFound {
+			return nil, nil
+		}
+
+		return nil, standardErr
+	}
+
+	object := &objex.ObjectMetaData{
+		Key:          objectItem.Key,
+		LastModified: objectItem.LastModified.String(),
+		ETag:         objectItem.ETag,
+		Size:         objectItem.Size,
+		ContentType:  objectItem.ContentType,
+	}
+
+	return object, nil
 }
 
 func (s *Store) CopyObject(src, dest string) error {
