@@ -16,7 +16,7 @@ It provides a unified interface to:
 | `aws`   | `github.com/brian-nunez/objex/drivers/aws`   | AWS S3 or any S3-compatible backend |
 | `minio` | `github.com/brian-nunez/objex/drivers/minio` | MinIO (self-hosted, Docker, etc.)   |
 
-Each driver registers itself via init() and can be instantiated through a single call to objex.New(config).
+Each driver registers itself via `init()` and can be instantiated through a single call to `objex.New(config)`.
 
 
 ## Why Use objex?
@@ -66,7 +66,7 @@ data, _ := store.ReadObject("images/cat.png")
 fmt.Println("Bytes read:", len(data))
 ```
 
-## Using Other Providers with the aws Driver
+## Using Other Providers with the `aws` Driver
 
 The `aws` driver works with any S3-compatible storage by configuring the endpoint and style settings.
 
