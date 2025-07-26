@@ -11,13 +11,42 @@ It provides a unified interface to:
 
 ## 🔧 Supported Drivers
 
-| Driver  | Package                                      | Use Case                            |
-| :------ | :------------------------------------------- | :---------------------------------- |
-| `aws`   | `github.com/brian-nunez/objex/drivers/aws`   | AWS S3 or any S3-compatible backend |
-| `minio` | `github.com/brian-nunez/objex/drivers/minio` | MinIO (self-hosted, Docker, etc.)   |
+| Driver       | Package                                           | Use Case                            |
+| :----------- | :------------------------------------------------ | :---------------------------------- |
+| `aws`        | `github.com/brian-nunez/objex/drivers/aws`        | AWS S3 or any S3-compatible backend |
+| `minio`      | `github.com/brian-nunez/objex/drivers/minio`      | MinIO (self-hosted, Docker, etc.)   |
+| `filesystem` | `github.com/brian-nunez/objex/drivers/filesystem` | Local storage using folders         |
 
 Each driver registers itself via `init()` and can be instantiated through a single call to `objex.New(config)`.
 
+## `filesystem` Driver (Local File System)
+
+The `filesystem` driver uses the local file system to emulate object storage. Each bucket is a folder, and each object is a file. This is ideal for:
+
+* Local development or testing
+* Offline environments
+* Simple setups where cloud storage is overkill
+* Transparent debugging of storage behavior
+
+Configuration:
+```go
+store, err := objex.New(filesystem.Config{
+	BasePath: "./storage", // Root directory for all buckets
+})
+```
+
+Behavior:
+
+* Buckets are subdirectories inside BasePath
+* Object keys (like `"img/cat.png"`) are written as files relative to the bucket folder
+* If no bucket is set via `SetBucket`, objects will go under a default `./storage/` path
+* Nested paths are supported and created automatically
+
+Filesystem Key Considerations:
+
+* This driver has no external dependencies — it only uses the Go standard library.
+* Symbolic links are not followed or handled automatically; users must account for them manually.
+* Ideal for testing object behavior without needing any cloud credentials or network access.
 
 ## Why Use objex?
 
@@ -95,11 +124,15 @@ store, err := objex.New(aws.Config{
 // Swap AWS for MinIO
 store := objex.New(aws.Config{...})
 store = objex.New(minio.Config{...})
+store = objex.New(filesystem.Config{...})
 
 // They all satisfy objex.Store:
 func uploadAsset(store objex.Store, name string, file io.Reader) {
 	store.CreateObject(name, file, "image/png")
 }
+
+file, _ := os.Open("cat.png")
+uploadAsset(store, "awesome-cat-picture.png", file)
 ```
 
 ## Interface Overview (`objex.Store`)
