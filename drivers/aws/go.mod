@@ -11,6 +11,8 @@ require (
 	github.com/brian-nunez/objex v0.0.8
 )
 
+replace github.com/brian-nunez/objex => ../../
+
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.11 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.33 // indirect
