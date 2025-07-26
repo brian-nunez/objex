@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	ErrUnknownDriver       = errors.New("UNKNOWN_DRIVER")
 	ErrInvalidEndpoint     = errors.New("INVALID_ENDPOINT")
 	ErrInvalidAccessKey    = errors.New("INVALID_ACCESS_KEY")
 	ErrInvalidSecretKey    = errors.New("INVALID_SECRET_KEY")

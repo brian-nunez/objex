@@ -12,6 +12,19 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+var driverName = "minio"
+
+func init() {
+	objex.Register(driverName, func(config any) (objex.Store, error) {
+		typed, ok := config.(Config)
+		if !ok {
+			return nil, objex.ErrClientInit
+		}
+
+		return NewStore(typed)
+	})
+}
+
 type Config struct {
 	Endpoint     string
 	AccessKey    string
@@ -20,6 +33,10 @@ type Config struct {
 	UseSSL       bool
 	Region       string
 	UsePathStyle bool
+}
+
+func (c Config) DriverName() string {
+	return driverName
 }
 
 type Store struct {
