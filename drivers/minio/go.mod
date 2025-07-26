@@ -3,7 +3,7 @@ module github.com/brian-nunez/objex/drivers/minio
 go 1.23.0
 
 require (
-	github.com/brian-nunez/objex v0.0.7
+	github.com/brian-nunez/objex v0.0.8
 	github.com/minio/minio-go/v7 v7.0.89
 )
 
