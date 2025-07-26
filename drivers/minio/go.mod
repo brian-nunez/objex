@@ -3,9 +3,11 @@ module github.com/brian-nunez/objex/drivers/minio
 go 1.23.0
 
 require (
-	github.com/brian-nunez/objex v0.0.8
+	github.com/brian-nunez/objex v1.0.3
 	github.com/minio/minio-go/v7 v7.0.89
 )
+
+replace github.com/brian-nunez/objex => ../../
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
