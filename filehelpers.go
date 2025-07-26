@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+func Scheme(useSSL bool) string {
+	if useSSL {
+		return "https"
+	}
+	return "http"
+}
+
 func SplitPath(currentBucket string, fullPath string) (bucket, object string, err error) {
 	if currentBucket != "" {
 		return currentBucket, fullPath, nil
