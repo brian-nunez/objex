@@ -3,7 +3,21 @@ package objex
 import (
 	"bytes"
 	"io"
+	"strings"
 )
+
+func SplitPath(currentBucket string, fullPath string) (bucket, object string, err error) {
+	if currentBucket != "" {
+		return currentBucket, fullPath, nil
+	}
+
+	parts := strings.SplitN(fullPath, "/", 2)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", ErrInvalidObjectName
+	}
+
+	return parts[0], parts[1], nil
+}
 
 func GetStreamSize(data io.Reader) (io.Reader, int64, error) {
 	if seeker, ok := data.(interface {
