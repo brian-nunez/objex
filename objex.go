@@ -2,7 +2,7 @@ package objex
 
 import (
 	"errors"
-	"os"
+	"io"
 )
 
 var (
@@ -42,11 +42,11 @@ type Store interface {
 	CreateBucket(bucketName string) error
 	DeleteBucket(bucketName string) error
 	ListBuckets() ([]Bucket, error)
-	CreateObject(fileName string, file *os.File) error
+	CreateObject(objectName string, data io.Reader, contentType string) error
 	ReadObject(fileName string) ([]byte, error)
 	UpdateObject(fileName string, data []byte) error
 	DeleteObject(fileName string) error
-	ListObjects(bucketName string) ([]string, error)
+	ListObjects(bucketName string) ([]*ObjectMetaData, error)
 	Exists(fileName string) (bool, error)
 	Metadata(fileName string) (*ObjectMetaData, error)
 	CopyObject(fileSource, fileDestination string) error

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/brian-nunez/objex"
@@ -207,7 +206,7 @@ func (s *Store) ListBuckets() ([]objex.Bucket, error) {
 	return bucketItems, nil
 }
 
-func (s *Store) CreateObject(name string, data *os.File) error {
+func (s *Store) CreateObject(name string, data io.Reader, contentType string) error {
 	if name == "" {
 		return objex.ErrInvalidObjectName
 	}
@@ -225,9 +224,13 @@ func (s *Store) CreateObject(name string, data *os.File) error {
 		}
 	}
 
-	fileInfo, err := data.Stat()
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	_, size, err := objex.GetStreamSize(data)
 	if err != nil {
-		return objex.ErrInvalidFile
+		return objex.ErrPreconditionFailed
 	}
 
 	_, err = s.client.PutObject(
@@ -235,9 +238,9 @@ func (s *Store) CreateObject(name string, data *os.File) error {
 		bucketName,
 		fileName,
 		data,
-		fileInfo.Size(),
+		size,
 		minio.PutObjectOptions{
-			ContentType: "application/octet-stream",
+			ContentType: contentType,
 		},
 	)
 
