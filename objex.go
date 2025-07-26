@@ -28,10 +28,10 @@ type Bucket struct {
 
 type ObjectMetaData struct {
 	Key          string
-	LastModified string
-	ETag         string
 	Size         int64
 	ContentType  string
+	ETag         string
+	LastModified string
 }
 
 // TODO: write comments for each function

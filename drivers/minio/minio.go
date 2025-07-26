@@ -328,8 +328,7 @@ func (s *Store) DeleteObject(name string) error {
 	return nil
 }
 
-// TODO: return bucket info instead of object name
-func (s *Store) ListObjects(name string) ([]string, error) {
+func (s *Store) ListObjects(name string) ([]*objex.ObjectMetaData, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -349,7 +348,7 @@ func (s *Store) ListObjects(name string) ([]string, error) {
 		},
 	)
 
-	objectNameList := make([]string, 0)
+	var objects []*objex.ObjectMetaData
 	for object := range objectChannel {
 		if object.Err != nil {
 			return nil, ToStandardError(object.Err)
@@ -359,10 +358,16 @@ func (s *Store) ListObjects(name string) ([]string, error) {
 			continue
 		}
 
-		objectNameList = append(objectNameList, object.Key)
+		objects = append(objects, &objex.ObjectMetaData{
+			Key:          object.Key,
+			Size:         object.Size,
+			ContentType:  object.ContentType,
+			ETag:         object.ETag,
+			LastModified: object.LastModified.String(),
+		})
 	}
 
-	return objectNameList, nil
+	return objects, nil
 }
 
 func (s *Store) Exists(objectName string) (bool, error) {
@@ -437,13 +442,66 @@ func (s *Store) Metadata(objectName string) (*objex.ObjectMetaData, error) {
 }
 
 func (s *Store) CopyObject(src, dest string) error {
+	if src == "" || dest == "" {
+		return objex.ErrInvalidObjectName
+	}
+
+	srcBucket := s.bucket
+	srcKey := src
+	destBucket := s.bucket
+	destKey := dest
+
+	if srcBucket == "" {
+		paths := strings.SplitN(src, "/", 2)
+		if len(paths) < 2 {
+			return objex.ErrInvalidObjectName
+		}
+		srcBucket = paths[0]
+		srcKey = paths[1]
+	}
+
+	if destBucket == "" {
+		paths := strings.SplitN(dest, "/", 2)
+		if len(paths) < 2 {
+			return objex.ErrInvalidObjectName
+		}
+		destBucket = paths[0]
+		destKey = paths[1]
+	}
+
+	srcOpts := minio.CopySrcOptions{
+		Bucket: srcBucket,
+		Object: srcKey,
+	}
+
+	destOpts := minio.CopyDestOptions{
+		Bucket: destBucket,
+		Object: destKey,
+	}
+
+	_, err := s.client.CopyObject(context.Background(), destOpts, srcOpts)
+	if err != nil {
+		return ToStandardError(err)
+	}
+
 	return nil
 }
 
 func (s *Store) MoveObject(src, dest string) error {
+	err := s.CopyObject(src, dest)
+	if err != nil {
+		return err
+	}
+
+	err = s.DeleteObject(src)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (s *Store) CleanUp() error {
+	log.Println("[Objex Minio] CleanUp called — no action needed")
 	return nil
 }
