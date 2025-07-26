@@ -77,7 +77,7 @@ func NewStore(config Config) (*Store, error) {
 	}
 
 	minioClient, err := minio.New(config.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(config.AccessKey, config.SecretKey, ""),
+		Creds:  credentials.NewStaticV4(config.AccessKey, config.SecretKey, config.Token),
 		Secure: config.UseSSL,
 	})
 	if err != nil {
@@ -211,17 +211,9 @@ func (s *Store) CreateObject(name string, data io.Reader, contentType string) er
 		return objex.ErrInvalidObjectName
 	}
 
-	bucketName := s.bucket
-	fileName := name
-	if bucketName == "" {
-		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
-		paths := strings.Split(name, "/")
-		bucketName = paths[0]
-		fileName = strings.Join(paths[1:], "/")
-
-		if bucketName == "" || fileName == "" {
-			return objex.ErrInvalidObjectName
-		}
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return err
 	}
 
 	if contentType == "" {
@@ -257,17 +249,9 @@ func (s *Store) ReadObject(name string) ([]byte, error) {
 		return nil, objex.ErrInvalidObjectName
 	}
 
-	bucketName := s.bucket
-	fileName := name
-	if bucketName == "" {
-		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
-		paths := strings.Split(name, "/")
-		bucketName = paths[0]
-		fileName = strings.Join(paths[1:], "/")
-
-		if bucketName == "" || fileName == "" {
-			return nil, objex.ErrInvalidObjectName
-		}
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return nil, err
 	}
 
 	object, err := s.client.GetObject(
@@ -294,8 +278,17 @@ func (s *Store) ReadObject(name string) ([]byte, error) {
 	return objectData, nil
 }
 
-func (s *Store) UpdateObject(name string, data []byte) error {
-	return nil
+func (s *Store) UpdateObject(name string, data io.Reader) error {
+	exists, object, err := s.Exists(name)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return objex.ErrObjectNotFound
+	}
+
+	return s.CreateObject(name, data, object.ContentType)
 }
 
 func (s *Store) DeleteObject(name string) error {
@@ -303,20 +296,12 @@ func (s *Store) DeleteObject(name string) error {
 		return objex.ErrInvalidObjectName
 	}
 
-	bucketName := s.bucket
-	fileName := name
-	if bucketName == "" {
-		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
-		paths := strings.Split(name, "/")
-		bucketName = paths[0]
-		fileName = strings.Join(paths[1:], "/")
-
-		if bucketName == "" || fileName == "" {
-			return objex.ErrInvalidObjectName
-		}
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return err
 	}
 
-	err := s.client.RemoveObject(
+	err = s.client.RemoveObject(
 		context.Background(),
 		bucketName,
 		fileName,
@@ -373,48 +358,43 @@ func (s *Store) ListObjects(name string) ([]*objex.ObjectMetaData, error) {
 	return objects, nil
 }
 
-func (s *Store) Exists(objectName string) (bool, error) {
-	bucketName := s.bucket
-	if bucketName == "" {
-		log.Println("[Objex Minio] Warning: Empty bucket name, using full path for objects")
-		paths := strings.Split(objectName, "/")
-		bucketName = paths[0]
-		objectName = strings.Join(paths[1:], "/")
-
-		if bucketName == "" || objectName == "" {
-			return false, objex.ErrInvalidObjectName
-		}
+func (s *Store) Exists(name string) (bool, *objex.ObjectMetaData, error) {
+	bucketName, name, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return false, nil, err
 	}
 
-	_, err := s.client.StatObject(
+	objectItem, err := s.client.StatObject(
 		context.Background(),
 		bucketName,
-		objectName,
+		name,
 		minio.StatObjectOptions{},
 	)
 
 	if err != nil {
 		standardErr := ToStandardError(err)
 		if standardErr == objex.ErrObjectNotFound {
-			return false, nil
+			return false, nil, nil
 		}
 
-		return false, standardErr
+		return false, nil, standardErr
 	}
 
-	return true, nil
+	metadata := &objex.ObjectMetaData{
+		Key:          objectItem.Key,
+		LastModified: objectItem.LastModified.String(),
+		ETag:         objectItem.ETag,
+		Size:         objectItem.Size,
+		ContentType:  objectItem.ContentType,
+	}
+
+	return true, metadata, nil
 }
 
 func (s *Store) Metadata(objectName string) (*objex.ObjectMetaData, error) {
-	bucketName := s.bucket
-	if bucketName == "" {
-		paths := strings.Split(objectName, "/")
-		bucketName = paths[0]
-		objectName = strings.Join(paths[1:], "/")
-
-		if bucketName == "" || objectName == "" {
-			return nil, objex.ErrInvalidObjectName
-		}
+	bucketName, objectName, err := objex.SplitPath(s.bucket, objectName)
+	if err != nil {
+		return nil, err
 	}
 
 	objectItem, err := s.client.StatObject(

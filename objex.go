@@ -44,10 +44,10 @@ type Store interface {
 	ListBuckets() ([]Bucket, error)
 	CreateObject(objectName string, data io.Reader, contentType string) error
 	ReadObject(fileName string) ([]byte, error)
-	UpdateObject(fileName string, data []byte) error
+	UpdateObject(fileName string, data io.Reader) error
 	DeleteObject(fileName string) error
 	ListObjects(bucketName string) ([]*ObjectMetaData, error)
-	Exists(fileName string) (bool, error)
+	Exists(fileName string) (bool, *ObjectMetaData, error)
 	Metadata(fileName string) (*ObjectMetaData, error)
 	CopyObject(fileSource, fileDestination string) error
 	MoveObject(fileSource, fileDestination string) error
