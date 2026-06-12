@@ -1,0 +1,53 @@
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-objex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: './go.mod'
+      - name: Test
+        run: make tests
+
+  # build-aws:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: './drivers/aws/go.mod'
+  #     - name: Test
+  #       run: cd ./drivers/aws && make tests
+  #
+  # build-filesystem:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: './drivers/filesystem/go.mod'
+  #     - name: Test
+  #       run: cd ./drivers/filesystem && make tests
+  #
+  # build-minio:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: './drivers/minio/go.mod'
+  #     - name: Test
+  #       run: cd ./drivers/minio && make tests
