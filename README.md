@@ -1,181 +1,275 @@
-# Object Storage Extendable Interface for Go
+# objex
 
-`objex` is a pluggable abstraction layer for interacting with object storage services like AWS S3, MinIO, Cloudflare R2, and other S3-compatible providers.
+`objex` is a Go interface for object storage. Applications can use the same
+`objex.Store` API with AWS S3, MinIO, or the local filesystem.
 
-It provides a unified interface to:
+The current API supports:
 
-* Upload, download, and manage objects
-* List and inspect buckets
-* Swap object store implementations at runtime
-* Write tools that don’t care what backend is used
+- Context-aware bucket and object operations
+- Streaming uploads and downloads
+- Byte-range reads
+- Object metadata and existence checks
+- Copy and move operations
+- Presigned GET and PUT URLs
+- ETags returned from creates and updates
 
-## 🔧 Supported Drivers
+## Requirements
 
-| Driver       | Package                                           | Use Case                            |
-| :----------- | :------------------------------------------------ | :---------------------------------- |
-| `aws`        | `github.com/brian-nunez/objex/drivers/aws`        | AWS S3 or any S3-compatible backend |
-| `minio`      | `github.com/brian-nunez/objex/drivers/minio`      | MinIO (self-hosted, Docker, etc.)   |
-| `filesystem` | `github.com/brian-nunez/objex/drivers/filesystem` | Local storage using folders         |
+- Go 1.22 or newer (the MinIO driver currently declares Go 1.23)
+- Credentials and a reachable service for AWS S3 or MinIO
+- A writable directory for the filesystem driver
 
-Each driver registers itself via `init()` and can be instantiated through a single call to `objex.New(config)`.
+## Install
 
-## `filesystem` Driver (Local File System)
+Install the core package and only the driver your application needs:
 
-The `filesystem` driver uses the local file system to emulate object storage. Each bucket is a folder, and each object is a file. This is ideal for:
-
-* Local development or testing
-* Offline environments
-* Simple setups where cloud storage is overkill
-* Transparent debugging of storage behavior
-
-Configuration:
-```go
-store, err := objex.New(filesystem.Config{
-	BasePath: "./storage", // Root directory for all buckets
-})
+```sh
+go get github.com/brian-nunez/objex@latest
+go get github.com/brian-nunez/objex/drivers/aws@latest
+# or
+go get github.com/brian-nunez/objex/drivers/minio@latest
+# or
+go get github.com/brian-nunez/objex/drivers/filesystem@latest
 ```
 
-Behavior:
+Each driver is a separate Go module and registers itself when imported.
 
-* Buckets are subdirectories inside BasePath
-* Object keys (like `"img/cat.png"`) are written as files relative to the bucket folder
-* If no bucket is set via `SetBucket`, objects will go under a default `./storage/` path
-* Nested paths are supported and created automatically
+## Supported Drivers
 
-Filesystem Key Considerations:
+| Driver | Package | Intended use |
+| --- | --- | --- |
+| AWS | `github.com/brian-nunez/objex/drivers/aws` | AWS S3 and S3-compatible services |
+| MinIO | `github.com/brian-nunez/objex/drivers/minio` | MinIO servers using the MinIO Go SDK |
+| Filesystem | `github.com/brian-nunez/objex/drivers/filesystem` | Local development, tests, and disk-backed storage |
 
-* This driver has no external dependencies — it only uses the Go standard library.
-* Symbolic links are not followed or handled automatically; users must account for them manually.
-* Ideal for testing object behavior without needing any cloud credentials or network access.
+Detailed consumer documentation:
 
-## Why Use objex?
+- [AWS driver](drivers/aws/TECHNICAL.md)
+- [MinIO driver](drivers/minio/TECHNICAL.md)
+- [Filesystem driver](drivers/filesystem/TECHNICAL.md)
 
-* No need to learn each storage SDK (you probably should, but...)
-* Pluggable and testable interface
-* Easily swap from S3 to MinIO or R2 with zero changes to your application logic
-* Works seamlessly with both file-based and streamed data
+## Quick Start
 
-## Quick Start (Using AWS)
-
-1. Import the package and the driver
+The example below uses the filesystem driver, so it does not require an
+external service.
 
 ```go
+package main
+
 import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"strings"
+
 	"github.com/brian-nunez/objex"
-	"github.com/brian-nunez/objex/drivers/aws" // registers "aws" driver
+	"github.com/brian-nunez/objex/drivers/filesystem"
 )
-```
 
-2. Create a new store
+func main() {
+	ctx := context.Background()
 
-```go
-store, err := objex.New(aws.Config{
-	Region:    "us-east-1",
-	Bucket:    "my-app-assets",
-	AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
-	SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-	Token:     "", // Optional, used for temporary sessions
-})
-```
+	store, err := objex.New(filesystem.Config{BasePath: "./storage"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := store.Setup(ctx); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := store.SetBucket("assets"); err != nil {
+		log.Fatal(err)
+	}
 
-3. Use it
+	etag, err := store.CreateObject(
+		ctx,
+		"notes/hello.txt",
+		strings.NewReader("hello from objex"),
+		"text/plain",
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("ETag:", etag)
 
-```go
-// Upload a file
-f, _ := os.Open("cat.png")
-defer f.Close()
+	reader, err := store.ReadObject(ctx, "notes/hello.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer reader.Close()
 
-err = store.CreateObject("images/cat.png", f, "image/png")
-if err != nil {
-	log.Fatal(err)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(data))
 }
-
-// Read the file back
-data, _ := store.ReadObject("images/cat.png")
-fmt.Println("Bytes read:", len(data))
 ```
 
-## Using Other Providers with the `aws` Driver
+`ReadObject` and `ReadObjectRange` return an `io.ReadCloser`. The caller must
+close it.
 
-The `aws` driver works with any S3-compatible storage by configuring the endpoint and style settings.
+## Constructing a Store
+
+Use `objex.New` when application code should depend on `objex.Store`:
 
 ```go
-store, err := objex.New(aws.Config{
-	Region:       "us-east-1",
-	Bucket:       "mybucket",
-	AccessKey:    "minioadmin",
-	SecretKey:    "minioadmin",
-	Endpoint:     "localhost:9000",
-	UseSSL:       false,
-	UsePathStyle: true,
-})
+store, err := objex.New(filesystem.Config{BasePath: "./storage"})
 ```
 
-| Option         | Description                              |
-| :------------- | :--------------------------------------- |
-| `Endpoint`     | Your S3-compatible service hostname/port |
-| `UseSSL`       | Set to `true` if your endpoint is HTTPS  |
-| `UsePathStyle` | Required for most self-hosted providers  |
-
-
-## Swapping Drivers
+Use a driver's `NewStore` when the concrete driver type is useful:
 
 ```go
-// Swap AWS for MinIO
-store := objex.New(aws.Config{...})
-store = objex.New(minio.Config{...})
-store = objex.New(filesystem.Config{...})
-
-// They all satisfy objex.Store:
-func uploadAsset(store objex.Store, name string, file io.Reader) {
-	store.CreateObject(name, file, "image/png")
-}
-
-file, _ := os.Open("cat.png")
-uploadAsset(store, "awesome-cat-picture.png", file)
+store, err := filesystem.NewStore(filesystem.Config{BasePath: "./storage"})
 ```
 
-## Interface Overview (`objex.Store`)
+Both forms create the same driver implementation. `objex.New` returns
+`objex.ErrUnknownDriver` when the config's driver has not been registered.
+
+## Object Names and Buckets
+
+AWS and MinIO use the same object naming rule:
+
+- After `SetBucket("assets")`, pass keys such as `images/logo.png`.
+- Without a selected bucket, pass `bucket/key`, such as
+  `assets/images/logo.png`.
+
+The filesystem driver also accepts `bucket/key` when no bucket is selected.
+A plain key without a selected bucket is stored directly under `BasePath`.
+
+```go
+// Selected-bucket style.
+_, err := store.SetBucket("assets")
+etag, err := store.CreateObject(ctx, "images/logo.png", file, "image/png")
+
+// Full-path style. Create a separate store without calling SetBucket.
+etag, err = store.CreateObject(ctx, "assets/images/logo.png", file, "image/png")
+```
+
+## Store API
 
 ```go
 type Store interface {
-	Setup() error
-	SetBucket(name string) (bool, error)
+	Setup(ctx context.Context) error
+	SetBucket(bucketName string) (bool, error)
 	SetRegion(region string) error
 
-	CreateBucket(name string) error
-	DeleteBucket(name string) error
-	ListBuckets() ([]Bucket, error)
+	CreateBucket(ctx context.Context, bucketName string) error
+	DeleteBucket(ctx context.Context, bucketName string) error
+	ListBuckets(ctx context.Context) ([]Bucket, error)
 
-	CreateObject(name string, data io.Reader, contentType string) error
-	ReadObject(name string) ([]byte, error)
-	UpdateObject(name string, data io.Reader) error
-	DeleteObject(name string) error
+	CreateObject(ctx context.Context, objectName string, data io.Reader, contentType string) (string, error)
+	ReadObject(ctx context.Context, objectName string) (io.ReadCloser, error)
+	ReadObjectRange(ctx context.Context, objectName string, offset, length int64) (io.ReadCloser, error)
+	UpdateObject(ctx context.Context, objectName string, data io.Reader) (string, error)
+	DeleteObject(ctx context.Context, objectName string) error
+	ListObjects(ctx context.Context, bucketName string) ([]*ObjectMetaData, error)
+	Exists(ctx context.Context, objectName string) (bool, *ObjectMetaData, error)
+	Metadata(ctx context.Context, objectName string) (*ObjectMetaData, error)
+	CopyObject(ctx context.Context, source, destination string) error
+	MoveObject(ctx context.Context, source, destination string) error
 
-	ListObjects(bucketName string) ([]*ObjectMetaData, error)
-	Exists(name string) (bool, *ObjectMetaData, error)
-	Metadata(name string) (*ObjectMetaData, error)
-
-	CopyObject(src, dest string) error
-	MoveObject(src, dest string) error
+	PresignGet(ctx context.Context, objectName string, expiration time.Duration) (string, error)
+	PresignPut(ctx context.Context, objectName string, expiration time.Duration) (string, error)
 
 	CleanUp() error
-	HealthCheck() error
+	HealthCheck(ctx context.Context) error
 }
 ```
 
-## Testing or In-Memory Drivers
+`CreateObject` and `UpdateObject` return the backend's ETag. ETag format and
+semantics are backend-specific and should not be treated as a universal content
+hash.
 
-Want to use a fake/mock Store for unit tests? You can implement a dummy driver and register it with:
+## Metadata
+
+Bucket creation dates and object modification dates are strings because each
+driver preserves its backend's representation.
 
 ```go
-objex.Register("mock", func(cfg any) (objex.Store, error) {
-	return &MockStore{}, nil
-})
+type Bucket struct {
+	Name         string
+	CreationDate string
+}
+
+type ObjectMetaData struct {
+	Key          string
+	Size         int64
+	ContentType  string
+	ETag         string
+	LastModified string
+}
 ```
 
-## Reach out if you have questions or just want to chat!
+`ListObjects` may return less detailed metadata than `Metadata`. For example,
+the AWS and filesystem drivers report `application/octet-stream` while listing,
+and filesystem listings omit ETags to avoid hashing every file.
 
-- [GitHub](https://www.github.com/brian-nunez)
-- [LinkedIn](https://www.linkedin.com/in/brianjnunez)
+## Errors
 
+Drivers use the shared sentinel errors where they can normalize backend
+behavior:
+
+```go
+if errors.Is(err, objex.ErrObjectNotFound) {
+	// Handle a missing object.
+}
+```
+
+Available sentinel errors include `ErrUnknownDriver`, `ErrInvalidEndpoint`,
+`ErrInvalidAccessKey`, `ErrInvalidSecretKey`, `ErrClientInit`,
+`ErrBucketNotFound`, `ErrInvalidBucketName`, `ErrObjectNotFound`,
+`ErrAccessDenied`, `ErrBucketNotEmpty`, `ErrPreconditionFailed`,
+`ErrBucketAlreadyExists`, `ErrInvalidObjectName`, and `ErrInvalidFile`.
+
+Some AWS SDK and operating-system errors are returned directly, so callers
+should not assume every failure maps to a sentinel error.
+
+## Driver Swapping
+
+Keep storage-dependent application code typed against `objex.Store`:
+
+```go
+func putAvatar(ctx context.Context, store objex.Store, r io.Reader) error {
+	_, err := store.CreateObject(ctx, "avatars/current.png", r, "image/png")
+	return err
+}
+```
+
+Then select a driver at composition time:
+
+```go
+var store objex.Store
+
+store, err = objex.New(aws.Config{ /* ... */ })
+store, err = objex.New(minio.Config{ /* ... */ })
+store, err = objex.New(filesystem.Config{ /* ... */ })
+```
+
+## Implementing a Custom Driver
+
+Implement `objex.Store`, provide a config implementing `DriverName`, and
+register a constructor:
+
+```go
+type Config struct{}
+
+func (Config) DriverName() string { return "custom" }
+
+func init() {
+	objex.Register("custom", func(config any) (objex.Store, error) {
+		cfg, ok := config.(Config)
+		if !ok {
+			return nil, objex.ErrClientInit
+		}
+		return NewStore(cfg)
+	})
+}
+```
+
+Registration mutates a package-level registry and is intended to happen during
+package initialization, before concurrent calls to `objex.New`.
+
+## License
+
+See [LICENSE](LICENSE).
