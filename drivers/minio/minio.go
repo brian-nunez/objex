@@ -5,7 +5,8 @@ import (
 	"errors"
 	"io"
 	"log"
-	"strings"
+	"net/url"
+	"time"
 
 	"github.com/brian-nunez/objex"
 	"github.com/minio/minio-go/v7"
@@ -35,13 +36,45 @@ type Config struct {
 	UsePathStyle bool
 }
 
+type minioClient interface {
+	BucketExists(ctx context.Context, bucketName string) (bool, error)
+	MakeBucket(ctx context.Context, bucketName string, options minio.MakeBucketOptions) error
+	RemoveBucket(ctx context.Context, bucketName string) error
+	ListBuckets(ctx context.Context) ([]minio.BucketInfo, error)
+	PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (io.ReadCloser, error)
+	RemoveObject(ctx context.Context, bucketName, objectName string, opts minio.RemoveObjectOptions) error
+	ListObjects(ctx context.Context, bucketName string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo
+	StatObject(ctx context.Context, bucketName, objectName string, opts minio.StatObjectOptions) (minio.ObjectInfo, error)
+	CopyObject(ctx context.Context, dst minio.CopyDestOptions, src minio.CopySrcOptions) (minio.UploadInfo, error)
+	PresignedGetObject(ctx context.Context, bucketName, objectName string, expires time.Duration, reqParams url.Values) (*url.URL, error)
+	PresignedPutObject(ctx context.Context, bucketName, objectName string, expires time.Duration) (*url.URL, error)
+}
+
+type minioClientWrapper struct {
+	*minio.Client
+}
+
+func (w *minioClientWrapper) GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (io.ReadCloser, error) {
+	return w.Client.GetObject(ctx, bucketName, objectName, opts)
+}
+
+var minioNew = func(endpoint string, opts *minio.Options) (minioClient, error) {
+	c, err := minio.New(endpoint, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &minioClientWrapper{c}, nil
+}
+
+
 func (c Config) DriverName() string {
 	return driverName
 }
 
 type Store struct {
 	config Config
-	client *minio.Client
+	client minioClient
 	bucket string
 }
 
@@ -53,7 +86,7 @@ func ToStandardError(err error) error {
 	code := minio.ToErrorResponse(err).Code
 
 	if code == "" {
-		return nil
+		return err
 	}
 
 	if code == "NoSuchBucket" {
@@ -88,12 +121,12 @@ func NewStore(config Config) (*Store, error) {
 		config: config,
 	}
 
-	err := store.HealthCheck()
+	err := store.HealthCheck(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	minioClient, err := minio.New(config.Endpoint, &minio.Options{
+	minioClient, err := minioNew(config.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(config.AccessKey, config.SecretKey, config.Token),
 		Secure: config.UseSSL,
 	})
@@ -106,11 +139,11 @@ func NewStore(config Config) (*Store, error) {
 	return store, nil
 }
 
-func (s *Store) Setup() error {
+func (s *Store) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) HealthCheck() error {
+func (s *Store) HealthCheck(ctx context.Context) error {
 	if s.config.Endpoint == "" {
 		return objex.ErrInvalidEndpoint
 	}
@@ -126,10 +159,6 @@ func (s *Store) HealthCheck() error {
 	if s.config.Region == "" {
 		log.Println("[Objex Minio] Warning: Region is not set, defaulting to 'us-east-1'")
 		s.config.Region = "us-east-1"
-	}
-
-	if !s.config.UseSSL {
-		log.Println("[Objex Minio] Warning: Using HTTP instead of HTTPS")
 	}
 
 	return nil
@@ -167,13 +196,13 @@ func (s *Store) SetRegion(region string) error {
 	return nil
 }
 
-func (s *Store) CreateBucket(name string) error {
+func (s *Store) CreateBucket(ctx context.Context, name string) error {
 	if name == "" {
 		return objex.ErrInvalidBucketName
 	}
 
 	err := s.client.MakeBucket(
-		context.Background(),
+		ctx,
 		name,
 		minio.MakeBucketOptions{
 			Region: s.config.Region,
@@ -188,12 +217,12 @@ func (s *Store) CreateBucket(name string) error {
 	return nil
 }
 
-func (s *Store) DeleteBucket(name string) error {
+func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 	if name == "" {
 		return objex.ErrInvalidBucketName
 	}
 
-	err := s.client.RemoveBucket(context.Background(), name)
+	err := s.client.RemoveBucket(ctx, name)
 	if err != nil {
 		standardErr := ToStandardError(err)
 		if standardErr == objex.ErrBucketNotFound {
@@ -206,8 +235,8 @@ func (s *Store) DeleteBucket(name string) error {
 	return nil
 }
 
-func (s *Store) ListBuckets() ([]objex.Bucket, error) {
-	buckets, err := s.client.ListBuckets(context.Background())
+func (s *Store) ListBuckets(ctx context.Context) ([]objex.Bucket, error) {
+	buckets, err := s.client.ListBuckets(ctx)
 	if err != nil {
 		return nil, ToStandardError(err)
 	}
@@ -223,30 +252,30 @@ func (s *Store) ListBuckets() ([]objex.Bucket, error) {
 	return bucketItems, nil
 }
 
-func (s *Store) CreateObject(name string, data io.Reader, contentType string) error {
+func (s *Store) CreateObject(ctx context.Context, name string, data io.Reader, contentType string) (string, error) {
 	if name == "" {
-		return objex.ErrInvalidObjectName
+		return "", objex.ErrInvalidObjectName
 	}
 
 	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	_, size, err := objex.GetStreamSize(data)
+	rd, size, err := objex.GetStreamSize(data)
 	if err != nil {
-		return objex.ErrPreconditionFailed
+		return "", objex.ErrPreconditionFailed
 	}
 
-	_, err = s.client.PutObject(
-		context.Background(),
+	info, err := s.client.PutObject(
+		ctx,
 		bucketName,
 		fileName,
-		data,
+		rd,
 		size,
 		minio.PutObjectOptions{
 			ContentType: contentType,
@@ -255,13 +284,13 @@ func (s *Store) CreateObject(name string, data io.Reader, contentType string) er
 
 	standardErr := ToStandardError(err)
 	if standardErr != nil {
-		return standardErr
+		return "", standardErr
 	}
 
-	return nil
+	return info.ETag, nil
 }
 
-func (s *Store) ReadObject(name string) ([]byte, error) {
+func (s *Store) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
 	if name == "" {
 		return nil, objex.ErrInvalidObjectName
 	}
@@ -272,43 +301,63 @@ func (s *Store) ReadObject(name string) ([]byte, error) {
 	}
 
 	object, err := s.client.GetObject(
-		context.Background(),
+		ctx,
 		bucketName,
 		fileName,
 		minio.GetObjectOptions{},
 	)
 	if err != nil {
 		standardErr := ToStandardError(err)
-		if standardErr == objex.ErrObjectNotFound {
-			return nil, nil
-		}
-
 		return nil, standardErr
 	}
-	defer object.Close()
 
-	objectData, err := io.ReadAll(object)
+	return object, nil
+}
+
+func (s *Store) ReadObjectRange(ctx context.Context, name string, offset, length int64) (io.ReadCloser, error) {
+	if name == "" {
+		return nil, objex.ErrInvalidObjectName
+	}
+
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
 	if err != nil {
 		return nil, err
 	}
 
-	return objectData, nil
+	opts := minio.GetObjectOptions{}
+	err = opts.SetRange(offset, offset+length-1)
+	if err != nil {
+		return nil, err
+	}
+
+	object, err := s.client.GetObject(
+		ctx,
+		bucketName,
+		fileName,
+		opts,
+	)
+	if err != nil {
+		standardErr := ToStandardError(err)
+		return nil, standardErr
+	}
+
+	return object, nil
 }
 
-func (s *Store) UpdateObject(name string, data io.Reader) error {
-	exists, object, err := s.Exists(name)
+func (s *Store) UpdateObject(ctx context.Context, name string, data io.Reader) (string, error) {
+	exists, object, err := s.Exists(ctx, name)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if !exists {
-		return objex.ErrObjectNotFound
+		return "", objex.ErrObjectNotFound
 	}
 
-	return s.CreateObject(name, data, object.ContentType)
+	return s.CreateObject(ctx, name, data, object.ContentType)
 }
 
-func (s *Store) DeleteObject(name string) error {
+func (s *Store) DeleteObject(ctx context.Context, name string) error {
 	if name == "" {
 		return objex.ErrInvalidObjectName
 	}
@@ -319,7 +368,7 @@ func (s *Store) DeleteObject(name string) error {
 	}
 
 	err = s.client.RemoveObject(
-		context.Background(),
+		ctx,
 		bucketName,
 		fileName,
 		minio.RemoveObjectOptions{},
@@ -333,10 +382,7 @@ func (s *Store) DeleteObject(name string) error {
 	return nil
 }
 
-func (s *Store) ListObjects(name string) ([]*objex.ObjectMetaData, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func (s *Store) ListObjects(ctx context.Context, name string) ([]*objex.ObjectMetaData, error) {
 	bucketName := s.bucket
 	if bucketName == "" {
 		bucketName = name
@@ -375,14 +421,14 @@ func (s *Store) ListObjects(name string) ([]*objex.ObjectMetaData, error) {
 	return objects, nil
 }
 
-func (s *Store) Exists(name string) (bool, *objex.ObjectMetaData, error) {
+func (s *Store) Exists(ctx context.Context, name string) (bool, *objex.ObjectMetaData, error) {
 	bucketName, name, err := objex.SplitPath(s.bucket, name)
 	if err != nil {
 		return false, nil, err
 	}
 
 	objectItem, err := s.client.StatObject(
-		context.Background(),
+		ctx,
 		bucketName,
 		name,
 		minio.StatObjectOptions{},
@@ -408,14 +454,14 @@ func (s *Store) Exists(name string) (bool, *objex.ObjectMetaData, error) {
 	return true, metadata, nil
 }
 
-func (s *Store) Metadata(objectName string) (*objex.ObjectMetaData, error) {
+func (s *Store) Metadata(ctx context.Context, objectName string) (*objex.ObjectMetaData, error) {
 	bucketName, objectName, err := objex.SplitPath(s.bucket, objectName)
 	if err != nil {
 		return nil, err
 	}
 
 	objectItem, err := s.client.StatObject(
-		context.Background(),
+		ctx,
 		bucketName,
 		objectName,
 		minio.StatObjectOptions{},
@@ -441,32 +487,18 @@ func (s *Store) Metadata(objectName string) (*objex.ObjectMetaData, error) {
 	return object, nil
 }
 
-func (s *Store) CopyObject(src, dest string) error {
+func (s *Store) CopyObject(ctx context.Context, src, dest string) error {
 	if src == "" || dest == "" {
 		return objex.ErrInvalidObjectName
 	}
 
-	srcBucket := s.bucket
-	srcKey := src
-	destBucket := s.bucket
-	destKey := dest
-
-	if srcBucket == "" {
-		paths := strings.SplitN(src, "/", 2)
-		if len(paths) < 2 {
-			return objex.ErrInvalidObjectName
-		}
-		srcBucket = paths[0]
-		srcKey = paths[1]
+	srcBucket, srcKey, err := objex.SplitPath(s.bucket, src)
+	if err != nil {
+		return err
 	}
-
-	if destBucket == "" {
-		paths := strings.SplitN(dest, "/", 2)
-		if len(paths) < 2 {
-			return objex.ErrInvalidObjectName
-		}
-		destBucket = paths[0]
-		destKey = paths[1]
+	destBucket, destKey, err := objex.SplitPath(s.bucket, dest)
+	if err != nil {
+		return err
 	}
 
 	srcOpts := minio.CopySrcOptions{
@@ -479,7 +511,7 @@ func (s *Store) CopyObject(src, dest string) error {
 		Object: destKey,
 	}
 
-	_, err := s.client.CopyObject(context.Background(), destOpts, srcOpts)
+	_, err = s.client.CopyObject(ctx, destOpts, srcOpts)
 	if err != nil {
 		return ToStandardError(err)
 	}
@@ -487,13 +519,13 @@ func (s *Store) CopyObject(src, dest string) error {
 	return nil
 }
 
-func (s *Store) MoveObject(src, dest string) error {
-	err := s.CopyObject(src, dest)
+func (s *Store) MoveObject(ctx context.Context, src, dest string) error {
+	err := s.CopyObject(ctx, src, dest)
 	if err != nil {
 		return err
 	}
 
-	err = s.DeleteObject(src)
+	err = s.DeleteObject(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -501,7 +533,34 @@ func (s *Store) MoveObject(src, dest string) error {
 	return nil
 }
 
+func (s *Store) PresignGet(ctx context.Context, name string, expiration time.Duration) (string, error) {
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return "", err
+	}
+
+	u, err := s.client.PresignedGetObject(ctx, bucketName, fileName, expiration, url.Values{})
+	if err != nil {
+		return "", ToStandardError(err)
+	}
+
+	return u.String(), nil
+}
+
+func (s *Store) PresignPut(ctx context.Context, name string, expiration time.Duration) (string, error) {
+	bucketName, fileName, err := objex.SplitPath(s.bucket, name)
+	if err != nil {
+		return "", err
+	}
+
+	u, err := s.client.PresignedPutObject(ctx, bucketName, fileName, expiration)
+	if err != nil {
+		return "", ToStandardError(err)
+	}
+
+	return u.String(), nil
+}
+
 func (s *Store) CleanUp() error {
-	log.Println("[Objex Minio] CleanUp called — no action needed")
 	return nil
 }
