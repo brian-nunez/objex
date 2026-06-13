@@ -1,8 +1,10 @@
 package objex
 
 import (
+	"context"
 	"errors"
 	"io"
+	"time"
 )
 
 var (
@@ -35,23 +37,26 @@ type ObjectMetaData struct {
 	LastModified string
 }
 
-// TODO: write comments for each function
+// Store is the interface for object storage operations.
 type Store interface {
-	Setup() error
+	Setup(ctx context.Context) error
 	SetBucket(bucketName string) (found bool, err error)
 	SetRegion(region string) error
-	CreateBucket(bucketName string) error
-	DeleteBucket(bucketName string) error
-	ListBuckets() ([]Bucket, error)
-	CreateObject(objectName string, data io.Reader, contentType string) error
-	ReadObject(fileName string) ([]byte, error)
-	UpdateObject(fileName string, data io.Reader) error
-	DeleteObject(fileName string) error
-	ListObjects(bucketName string) ([]*ObjectMetaData, error)
-	Exists(fileName string) (bool, *ObjectMetaData, error)
-	Metadata(fileName string) (*ObjectMetaData, error)
-	CopyObject(fileSource, fileDestination string) error
-	MoveObject(fileSource, fileDestination string) error
+	CreateBucket(ctx context.Context, bucketName string) error
+	DeleteBucket(ctx context.Context, bucketName string) error
+	ListBuckets(ctx context.Context) ([]Bucket, error)
+	CreateObject(ctx context.Context, objectName string, data io.Reader, contentType string) (string, error)
+	ReadObject(ctx context.Context, fileName string) (io.ReadCloser, error)
+	ReadObjectRange(ctx context.Context, fileName string, offset, length int64) (io.ReadCloser, error)
+	UpdateObject(ctx context.Context, fileName string, data io.Reader) (string, error)
+	DeleteObject(ctx context.Context, fileName string) error
+	ListObjects(ctx context.Context, bucketName string) ([]*ObjectMetaData, error)
+	Exists(ctx context.Context, fileName string) (bool, *ObjectMetaData, error)
+	Metadata(ctx context.Context, fileName string) (*ObjectMetaData, error)
+	CopyObject(ctx context.Context, fileSource, fileDestination string) error
+	MoveObject(ctx context.Context, fileSource, fileDestination string) error
+	PresignGet(ctx context.Context, name string, expiration time.Duration) (string, error)
+	PresignPut(ctx context.Context, name string, expiration time.Duration) (string, error)
 	CleanUp() error
-	HealthCheck() error
+	HealthCheck(ctx context.Context) error
 }
