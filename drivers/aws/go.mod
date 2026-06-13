@@ -8,10 +8,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.71
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.85
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.84.1
-	github.com/brian-nunez/objex v1.0.3
+	github.com/brian-nunez/objex v1.0.8
 )
-
-replace github.com/brian-nunez/objex => ../../
 
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.11 // indirect
